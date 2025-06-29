@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Book a Ride</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5; /* Light gray background */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 1rem;
+        }
+        /* Custom styles for focus states and shadows */
+        .form-input:focus, .form-textarea:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.5); /* Blue shadow on focus */
+            border-color: #4299e1; /* Blue border on focus */
+        }
+        /* Style for Google Places Autocomplete dropdown */
+        .pac-container {
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            z-index: 1000; /* Ensure it's above other elements */
+        }
+        .pac-item {
+            padding: 0.75rem 1rem;
+            font-size: 0.875rem; /* sm:text-sm */
+            line-height: 1.25rem;
+            cursor: pointer;
+        }
+        .pac-item:hover {
+            background-color: #f5f5f5; /* Tailwind's gray-100 */
+        }
+        .pac-item-query {
+            font-weight: 600; /* Tailwind's font-semibold */
+        }
+
+        /* Modal specific styles */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000; /* Higher than pac-container */
+        }
+        .modal-content {
+            background-color: white;
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            width: 90%;
+            max-width: 800px;
+            max-height: 90vh; /* Limit modal height */
+            display: flex;
+            flex-direction: column;
+        }
+        #map {
+            width: 100%;
+            height: 400px; /* Fixed height for the map */
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        /* Hide scrollbars for the body when modal is open */
+        body.modal-open {
+            overflow: hidden;
+        }
+        /* Styling for disabled inputs */
+        .form-input:disabled, .form-textarea:disabled {
+            background-color: #f5f5f5; /* Tailwind's gray-100 */
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mx-auto p-6 bg-white rounded-xl shadow-lg w-full max-w-lg md:max-w-xl lg:max-w-2xl">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Book Your Ride</h1>
+        <p class="text-gray-600 mb-8 text-center">Please fill out the form below to request a ride. We'll confirm with you shortly!</p>
+
+        <form id="rideBookingForm" class="space-y-6">
+            <!-- Name Input -->
+            <div>
+                <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Your Full Name</label>
+                <input type="text" id="name" name="name" placeholder="John Doe" required
+                       class="form-input mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition duration-150 ease-in-out">
+            </div>
+
+            <!-- Email Input -->
+            <div>
+                <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+                <input type="email" id="email" name="email" placeholder="you@example.com" required
+                       class="form-input mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition duration-150 ease-in-out">
+                <p id="emailError" class="text-red-500 text-xs mt-1 hidden">Please enter a valid email address.</p>
+            </div>
+
+            <!-- Phone Number Input -->
+            <div>
+                <label for="phone" class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                <input type="tel" id="phone" name="phone" placeholder="+1 (555) 123-4567" required
+                       class="form-input mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition duration-150 ease-in-out">
+                <p id="phoneError" class="text-red-500 text-xs mt-1 hidden">Please enter a valid phone number.</p>
+            </div>
+
+            <!-- Current Location Input with Autocomplete & Map Pick Button -->
+            <div>
+                <label for="pickupLocation" class="block text-sm font-medium text-gray-700 mb-1">Your Current Pickup Location</label>
+                <div class="flex items-center space-x-2">
+                    <input type="text" id="pickupLocation" name="pickupLocation" placeholder="Start typing an address or pick on map..." required
+                           class="form-input flex-grow px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition duration-150 ease-in-out">
+                    <button type="button" id="pickPickupOnMapBtn"
+                            class="px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-400 text-sm">
+                        Pick on Map
+                    </button>
+                </div>
+            </div>
+
+            <!-- Primary Destination Input with Autocomplete & Map Pick Button -->
+            <div>
+                <label for="destination" class="block text-sm font-medium text-gray-700 mb-1">Your Primary Destination</label>
+                <div class="flex items-center space-x-2">
+                    <input type="text" id="destination" name="destination" placeholder="Start typing an address or pick on map..." required
+                           class="form-input flex-grow px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition duration-150 ease-in-out">
+                    <button type="button" id="pickDestinationOnMapBtn"
+                            class="px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-400 text-sm">
+                        Pick on Map
+                    </button>
+                </div>
+            </div>
+
+            <!-- Dynamic Additional Destinations -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Additional Stops (Optional)</label>
+                <div id="additionalDestinationsContainer" class="space-y-4">
+                    <!-- Dynamic inputs will be added here -->
+                </div>
+                <button type="button" id="addStopBtn"
+                        class="mt-3 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition duration-150 ease-in-out text-sm">
+                    + Add Another Stop
+                </button>
+            </div>
+
+            <!-- Passenger Requests -->
+            <div>
+                <label for="passengerRequests" class="block text-sm font-medium text-gray-700 mb-1">Special Requests or Notes (Optional)</label>
+                <textarea id="passengerRequests" name="passengerRequests" rows="3" placeholder="e.g., 'Need a child seat', 'Picking up 2 additional passengers', 'Quiet ride preferred'."
+                          class="form-textarea mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition duration-150 ease-in-out"></textarea>
+            </div>
+
+            <!-- Action Buttons -->
+            <div id="actionButtons" class="space-y-4">
+                <button type="button" id="getQuoteBtn"
+                        class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 ease-in-out">
+                    Get Quote
+                </button>
+                <button type="button" id="confirmBookingBtn"
+                        class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-150 ease-in-out hidden">
+                    Confirm Booking
+                </button>
+            </div>
+        </form>
+
+        <!-- Loading Indicator -->
+        <div id="loadingIndicator" class="mt-4 p-3 bg-blue-100 border border-blue-400 text-blue-700 rounded-lg hidden text-center" role="status">
+            <div class="flex items-center justify-center">
+                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Processing your request...
+            </div>
+        </div>
+
+        <!-- Trip Summary and Confirmation Section -->
+        <div id="tripSummary" class="mt-6 p-6 bg-blue-50 rounded-xl border border-blue-200 hidden">
+            <h2 class="text-xl font-bold text-blue-800 mb-4">Trip Summary & Estimated Cost</h2>
+            <div class="space-y-2 text-gray-700">
+                <p><strong>Name:</strong> <span id="summaryName"></span></p>
+                <p><strong>Email:</strong> <span id="summaryEmail"></span></p>
+                <p><strong>Phone:</strong> <span id="summaryPhone"></span></p>
+                <p><strong>Pickup:</strong> <span id="summaryPickup"></span></p>
+                <p><strong>Destination:</strong> <span id="summaryPrimaryDestination"></span></p>
+                <div id="summaryAdditionalDestinationsContainer" class="hidden">
+                    <strong>Additional Stops:</strong>
+                    <ul id="summaryAdditionalDestinations" class="list-disc ml-5 mt-1 text-sm"></ul>
+                </div>
+                <p><strong>Total Distance:</strong> <span id="summaryDistance"></span></p>
+                <p><strong>Estimated Duration:</strong> <span id="summaryDuration"></span></p>
+                <p class="text-2xl font-extrabold text-blue-700 pt-4">Estimated Cost: <span id="summaryCost"></span></p>
+            </div>
+            <p class="text-sm text-gray-500 mt-4">This is an estimated cost and may vary based on traffic or unforeseen circumstances.</p>
+            <div class="mt-4 flex justify-end">
+                <button type="button" id="editDetailsBtn"
+                        class="px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 text-sm">
+                    Edit Details
+                </button>
+            </div>
+        </div>
+
+        <!-- Message Box for submission confirmation -->
+        <div id="messageBox" class="mt-6 p-4 bg-green-100 border border-green-400 text-green-700 rounded-lg hidden relative" role="alert">
+            <p id="messageText"></p>
+            <button class="absolute top-0 right-0 mt-2 mr-2 text-green-700 hover:text-green-900" onclick="document.getElementById('messageBox').classList.add('hidden');">&times;</button>
+        </div>
+    </div>
+
+    <!-- Map Modal Structure -->
+    <div id="mapModal" class="modal hidden">
+        <div class="modal-content">
+            <h2 id="mapModalTitle" class="text-xl font-bold text-gray-800 mb-4">Pick Location on Map</h2>
+            <div id="map"></div>
+            <div class="flex justify-end space-x-3">
+                <button type="button" id="cancelMapPickBtn"
+                        class="px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">
+                    Cancel
+                </button>
+                <button type="button" id="confirmMapPickBtn"
+                        class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    Confirm Location
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // Google Maps JavaScript API key - Make sure this is YOUR CLIENT-SIDE API KEY
+        // This key should be restricted to the Places API and Maps JavaScript API for client-side use.
+        function loadGoogleMapsScript() {
+            const script = document.createElement('script');
+            // IMPORTANT: Your provided API key
+            script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyBOh_MPmcrd0ujlmahjM-gY15Vo4aFtdBs&libraries=places&callback=initMapAndAutocomplete`;
+            script.async = true;
+            script.defer = true;
+            document.head.appendChild(script);
+        }
+
+        let map;
+        let mapMarker;
+        let geocoder;
+        let mapClickListener;
+        let currentMapTargetInput = null;
+
+        let pickupAutocomplete;
+        let primaryDestinationAutocomplete;
+        const dynamicDestinationAutocompletes = [];
+
+        async function initMapAndAutocomplete() {
+            let initialCenter = { lat: -17.825166, lng: 31.050805 }; // Default to Harare, Zimbabwe
+
+            // Attempt to get user's current location
+            if (navigator.geolocation) {
+                console.log("Attempting to get user's current location...");
+                try {
+                    const position = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, {
+                            enableHighAccuracy: true,
+                            timeout: 10000, // Increased timeout to 10 seconds
+                            maximumAge: 0
+                        });
+                    });
+                    initialCenter = {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    };
+                    console.log("Map centered on user's current location:", initialCenter);
+                } catch (error) {
+                    console.warn(`Geolocation error (${error.code || 'UNKNOWN'}): ${error.message || 'Permission denied or timed out'}. Falling back to default location.`);
+                    // Fallback to default location if geolocation fails or is denied
+                }
+            } else {
+                console.warn("Geolocation is not supported by this browser. Falling back to default location.");
+            }
+
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: initialCenter,
+                zoom: 12,
+                mapTypeControl: false,
+                streetViewControl: false
+            });
+
+            mapMarker = new google.maps.Marker({
+                map: map,
+                position: initialCenter, // Marker starts at initial center
+                draggable: true
+            });
+
+            geocoder = new google.maps.Geocoder();
+
+            const pickupInput = document.getElementById('pickupLocation');
+            const primaryDestinationInput = document.getElementById('destination');
+
+            const autocompleteOptions = {
+                types: ['address'],
+                componentRestrictions: { 'country': ['us', 'ca', 'gb', 'au', 'zw'] }
+            };
+
+            pickupAutocomplete = new google.maps.places.Autocomplete(pickupInput, autocompleteOptions);
+            primaryDestinationAutocomplete = new google.maps.places.Autocomplete(primaryDestinationInput, autocompleteOptions);
+
+            pickupAutocomplete.addListener('place_changed', () => {
+                const place = pickupAutocomplete.getPlace();
+                pickupInput.value = place.formatted_address || pickupInput.value;
+                console.log('Pickup Location selected via autocomplete:', pickupInput.value);
+            });
+
+            primaryDestinationAutocomplete.addListener('place_changed', () => {
+                const place = primaryDestinationAutocomplete.getPlace();
+                primaryDestinationInput.value = place.formatted_address || primaryDestinationInput.value;
+                console.log('Primary Destination selected via autocomplete:', primaryDestinationInput.value);
+            });
+
+            document.querySelectorAll('.additional-destination-input').forEach(input => {
+                initializeDynamicAutocomplete(input);
+            });
+        }
+
+        function initializeDynamicAutocomplete(inputElement) {
+            const autocompleteOptions = {
+                types: ['address'],
+                componentRestrictions: { 'country': ['us', 'ca', 'gb', 'au', 'zw'] }
+            };
+            const newAutocomplete = new google.maps.places.Autocomplete(inputElement, autocompleteOptions);
+            newAutocomplete.addListener('place_changed', () => {
+                const place = newAutocomplete.getPlace();
+                inputElement.value = place.formatted_address || inputElement.value;
+                console.log('Dynamic Destination selected via autocomplete:', inputElement.value);
+            });
+            dynamicDestinationAutocompletes.push(newAutocomplete);
+        }
+
+        function openMapModal(targetInput) {
+            currentMapTargetInput = targetInput;
+            document.getElementById('mapModal').classList.remove('hidden');
+            document.body.classList.add('modal-open');
+
+            let titleText = 'Pick Location on Map';
+            if (targetInput.id === 'pickupLocation') {
+                titleText = 'Pick Pickup Location on Map';
+            } else if (targetInput.id === 'destination') {
+                titleText = 'Pick Primary Destination on Map';
+            } else if (targetInput.classList.contains('additional-destination-input')) {
+                titleText = 'Pick Additional Stop on Map';
+            }
+            document.getElementById('mapModalTitle').textContent = titleText;
+
+            const initialAddress = currentMapTargetInput.value.trim();
+            if (initialAddress) {
+                geocoder.geocode({ 'address': initialAddress }, (results, status) => {
+                    if (status === 'OK' && results[0]) {
+                        map.setCenter(results[0].geometry.location);
+                        mapMarker.setPosition(results[0].geometry.location);
+                    } else {
+                        console.warn(`Could not geocode '${initialAddress}', centering map to current view.`);
+                        map.setCenter(map.getCenter());
+                        mapMarker.setPosition(map.getCenter());
+                    }
+                });
+            } else {
+                map.setCenter(map.getCenter());
+                mapMarker.setPosition(map.getCenter());
+            }
+
+            google.maps.event.trigger(map, 'resize');
+
+            mapClickListener = map.addListener('click', handleMapClick);
+            mapMarker.addListener('dragend', handleMapDragEnd);
+        }
+
+        function handleMapClick(event) {
+            const latLng = event.latLng;
+            mapMarker.setPosition(latLng);
+            reverseGeocode(latLng);
+        }
+
+        function handleMapDragEnd() {
+            const latLng = mapMarker.getPosition();
+            reverseGeocode(latLng);
+        }
+
+        function reverseGeocode(latLng) {
+            geocoder.geocode({ 'location': latLng }, (results, status) => {
+                if (status === 'OK') {
+                    if (results[0]) {
+                        currentMapTargetInput.value = results[0].formatted_address;
+                        console.log("Selected address from map:", results[0].formatted_address);
+                    } else {
+                        console.warn('No results found for reverse geocoding.');
+                        currentMapTargetInput.value = `${latLng.lat().toFixed(6)}, ${latLng.lng().toFixed(6)}`;
+                    }
+                } else {
+                    console.error('Geocoder failed due to: ' + status);
+                    showMessage('Could not find address for selected point. Please try again.', 'red');
+                    currentMapTargetInput.value = `${latLng.lat().toFixed(6)}, ${latLng.lng().toFixed(6)}`;
+                }
+            });
+        }
+
+        function closeMapModal() {
+            document.getElementById('mapModal').classList.add('hidden');
+            document.body.classList.remove('modal-open');
+            if (mapClickListener) {
+                google.maps.event.removeListener(mapClickListener);
+            }
+            mapMarker.removeListener('dragend');
+            currentMapTargetInput = null;
+        }
+
+        function setFormFieldsDisabled(disabled) {
+            document.querySelectorAll('#rideBookingForm input, #rideBookingForm textarea').forEach(field => {
+                field.disabled = disabled;
+            });
+
+            document.getElementById('addStopBtn').disabled = disabled;
+            document.getElementById('pickPickupOnMapBtn').disabled = disabled;
+            document.getElementById('pickDestinationOnMapBtn').disabled = disabled;
+            
+            document.querySelectorAll('.additional-destination-input + button, .additional-destination-input ~ button').forEach(button => {
+                button.disabled = disabled;
+            });
+        }
+
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const form = document.getElementById('rideBookingForm');
+            const nameInput = document.getElementById('name');
+            const emailInput = document.getElementById('email');
+            const emailError = document.getElementById('emailError');
+            const phoneInput = document.getElementById('phone');
+            const phoneError = document.getElementById('phoneError');
+            const messageBox = document.getElementById('messageBox');
+            const messageText = document.getElementById('messageText');
+            const addStopBtn = document.getElementById('addStopBtn');
+            const additionalDestinationsContainer = document.getElementById('additionalDestinationsContainer');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+
+            const getQuoteBtn = document.getElementById('getQuoteBtn');
+            const confirmBookingBtn = document.getElementById('confirmBookingBtn');
+            const tripSummary = document.getElementById('tripSummary');
+            const summaryName = document.getElementById('summaryName');
+            const summaryEmail = document.getElementById('summaryEmail');
+            const summaryPhone = document.getElementById('summaryPhone');
+            const summaryPickup = document.getElementById('summaryPickup');
+            const summaryPrimaryDestination = document.getElementById('summaryDestination');
+            const summaryAdditionalDestinationsContainer = document.getElementById('summaryAdditionalDestinationsContainer');
+            const summaryAdditionalDestinations = document.getElementById('summaryAdditionalDestinations');
+            const summaryDistance = document.getElementById('summaryDistance');
+            const summaryDuration = document.getElementById('summaryDuration');
+            const summaryCost = document.getElementById('summaryCost');
+            const editDetailsBtn = document.getElementById('editDetailsBtn');
+
+            const pickPickupOnMapBtn = document.getElementById('pickPickupOnMapBtn');
+            const pickDestinationOnMapBtn = document.getElementById('pickDestinationOnMapBtn');
+            const mapModal = document.getElementById('mapModal');
+            const cancelMapPickBtn = document.getElementById('cancelMapPickBtn');
+            const confirmMapPickBtn = document.getElementById('confirmMapPickBtn');
+
+
+            // Phone number validation regex
+            const phoneRegex = /^\+?(\d{1,3})?[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}$/;
+            // Email validation regex
+            const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
+            // Load Google Maps script once the DOM is ready
+            loadGoogleMapsScript();
+
+            // Event listeners for map picking buttons
+            pickPickupOnMapBtn.addEventListener('click', () => openMapModal(document.getElementById('pickupLocation')));
+            pickDestinationOnMapBtn.addEventListener('click', () => openMapModal(document.getElementById('destination')));
+            cancelMapPickBtn.addEventListener('click', closeMapModal);
+
+            // FIX: Ensure address is set when "Confirm Location" button is clicked
+            confirmMapPickBtn.addEventListener('click', () => {
+                if (currentMapTargetInput && mapMarker) {
+                    reverseGeocode(mapMarker.getPosition()); // Explicitly reverse geocode the marker's position
+                }
+                closeMapModal(); // Then close the modal
+            });
+
+
+            // Function to add a new dynamic destination input field
+            addStopBtn.addEventListener('click', () => {
+                const newStopDiv = document.createElement('div');
+                newStopDiv.className = 'flex items-center space-x-2 w-full';
+
+                const newInput = document.createElement('input');
+                newInput.type = 'text';
+                newInput.placeholder = 'Another stop address...';
+                newInput.className = 'form-input flex-grow px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition duration-150 ease-in-out additional-destination-input';
+                newInput.name = 'additionalDestination';
+
+                const pickMapButton = document.createElement('button');
+                pickMapButton.type = 'button';
+                pickMapButton.textContent = 'Map';
+                pickMapButton.className = 'px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-400 text-sm dynamic-pick-on-map-btn';
+                pickMapButton.onclick = () => openMapModal(newInput);
+
+                const removeButton = document.createElement('button');
+                removeButton.type = 'button';
+                removeButton.innerHTML = '&times;';
+                removeButton.className = 'px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-400 text-sm';
+                removeButton.onclick = () => {
+                    newStopDiv.remove();
+                };
+
+                newStopDiv.appendChild(newInput);
+                newStopDiv.appendChild(pickMapButton);
+                newStopDiv.appendChild(removeButton);
+                additionalDestinationsContainer.appendChild(newStopDiv);
+
+                if (typeof google !== 'undefined' && google.maps && google.maps.places) {
+                    initializeDynamicAutocomplete(newInput);
+                } else {
+                    console.warn('Google Maps API not fully loaded when trying to add dynamic autocomplete.');
+                }
+
+                if (getQuoteBtn.classList.contains('hidden')) {
+                    newInput.disabled = true;
+                    pickMapButton.disabled = true;
+                    removeButton.disabled = true;
+                }
+            });
+
+            getQuoteBtn.addEventListener('click', async () => {
+                hideMessage();
+                hideTripSummary();
+                showLoading();
+
+                let isValid = true;
+                if (nameInput.value.trim() === '') { isValid = false; nameInput.classList.add('border-red-500'); } else { nameInput.classList.remove('border-red-500'); }
+                if (!phoneRegex.test(phoneInput.value)) { phoneError.classList.remove('hidden'); phoneInput.classList.add('border-red-500'); isValid = false; } else { phoneError.classList.add('hidden'); phoneInput.classList.remove('border-red-500'); }
+                if (!emailRegex.test(emailInput.value)) { emailError.classList.remove('hidden'); emailInput.classList.add('border-red-500'); isValid = false; } else { emailError.classList.add('hidden'); emailInput.classList.remove('border-red-500'); }
+
+                if (document.getElementById('pickupLocation').value.trim() === '') {
+                    isValid = false;
+                    document.getElementById('pickupLocation').classList.add('border-red-500');
+                } else {
+                    document.getElementById('pickupLocation').classList.remove('border-red-500');
+                }
+                if (document.getElementById('destination').value.trim() === '') {
+                    isValid = false;
+                    document.getElementById('destination').classList.add('border-red-500');
+                } else {
+                    document.getElementById('destination').classList.remove('border-red-500');
+                }
+
+                if (!isValid) {
+                    hideLoading();
+                    showMessage('Please fill in all required fields and correct the highlighted errors.', 'red');
+                    return;
+                }
+
+                const additionalDestinations = [];
+                document.querySelectorAll('.additional-destination-input').forEach(input => {
+                    if (input.value.trim() !== '') {
+                        additionalDestinations.push(input.value.trim());
+                    }
+                });
+
+                const formData = {
+                    name: nameInput.value,
+                    email: emailInput.value,
+                    phone: phoneInput.value,
+                    pickupLocation: document.getElementById('pickupLocation').value,
+                    primaryDestination: document.getElementById('destination').value,
+                    additionalDestinations: additionalDestinations,
+                    passengerRequests: document.getElementById('passengerRequests').value
+                };
+
+                try {
+                    const response = await fetch('http://127.0.0.1:5000/book-ride', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(formData)
+                    });
+
+                    hideLoading();
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        console.log('Quote received:', data);
+                        if (data.booking_details) {
+                            displayTripSummary(data.booking_details);
+                            confirmBookingBtn.classList.remove('hidden');
+                            getQuoteBtn.classList.add('hidden');
+                            setFormFieldsDisabled(true);
+                            showMessage('Review your trip details and confirm booking.', 'green');
+                        } else {
+                            showMessage('Could not get trip details. Please try again.', 'red');
+                        }
+                    } else {
+                        const errorData = await response.json();
+                        console.error('Backend Error:', errorData);
+                        showMessage(`Error getting quote: ${errorData.error || 'Please try again.'}`, 'red');
+                    }
+                } catch (error) {
+                    hideLoading();
+                    console.error('Network or Fetch Error:', error);
+                    showMessage('Network error. Could not connect to the booking service. Please try again later.', 'red');
+                }
+            });
+
+            confirmBookingBtn.addEventListener('click', async () => {
+                hideMessage();
+                showLoading();
+
+                const additionalDestinations = [];
+                document.querySelectorAll('.additional-destination-input').forEach(input => {
+                    if (input.value.trim() !== '') {
+                        additionalDestinations.push(input.value.trim());
+                    }
+                });
+
+                const formData = {
+                    name: nameInput.value,
+                    email: emailInput.value,
+                    phone: phoneInput.value,
+                    pickupLocation: document.getElementById('pickupLocation').value,
+                    primaryDestination: document.getElementById('destination').value,
+                    additionalDestinations: additionalDestinations,
+                    passengerRequests: document.getElementById('passengerRequests').value,
+                    isConfirmed: true
+                };
+
+                try {
+                    const response = await fetch('http://127.0.0.1:5000/book-ride', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(formData)
+                    });
+
+                    hideLoading();
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        console.log('Booking confirmed:', data);
+                        showMessage('Your ride has been successfully booked! We will contact you shortly.', 'green');
+                        form.reset();
+                        additionalDestinationsContainer.innerHTML = '';
+                        hideTripSummary();
+                        confirmBookingBtn.classList.add('hidden');
+                        getQuoteBtn.classList.remove('hidden');
+                        setFormFieldsDisabled(false);
+                    } else {
+                        const errorData = await response.json();
+                        console.error('Booking confirmation error:', errorData);
+                        showMessage(`Error confirming booking: ${errorData.error || 'Please try again.'}`, 'red');
+                    }
+                } catch (error) {
+                    hideLoading();
+                    console.error('Network or Fetch Error:', error);
+                    showMessage('Network error. Could not confirm booking. Please try again later.', 'red');
+                }
+            });
+
+            editDetailsBtn.addEventListener('click', () => {
+                hideTripSummary();
+                confirmBookingBtn.classList.add('hidden');
+                getQuoteBtn.classList.remove('hidden');
+                setFormFieldsDisabled(false);
+                hideMessage();
+                showMessage('You can now edit your details. Get a new quote when done.', 'blue');
+            });
+
+
+            function displayTripSummary(details) {
+                summaryName.textContent = details.name;
+                summaryEmail.textContent = details.email;
+                summaryPhone.textContent = details.phone;
+                summaryPickup.textContent = details.pickupLocation;
+                summaryPrimaryDestination.textContent = details.primaryDestination;
+
+                summaryAdditionalDestinations.innerHTML = '';
+                if (details.additionalDestinations && details.additionalDestinations.length > 0) {
+                    summaryAdditionalDestinationsContainer.classList.remove('hidden');
+                    details.additionalDestinations.forEach(stop => {
+                        const li = document.createElement('li');
+                        li.textContent = stop;
+                        summaryAdditionalDestinations.appendChild(li);
+                    });
+                } else {
+                    summaryAdditionalDestinationsContainer.classList.add('hidden');
+                }
+
+                summaryDistance.textContent = `${details.total_distance_km.toFixed(2)} km`;
+                summaryDuration.textContent = `${details.total_duration_minutes.toFixed(2)} minutes`;
+                summaryCost.textContent = `$${details.estimated_cost_usd.toFixed(2)}`;
+
+                tripSummary.classList.remove('hidden');
+            }
+
+            function hideTripSummary() {
+                tripSummary.classList.add('hidden');
+            }
+
+            function showMessage(message, type) {
+                messageText.textContent = message;
+                messageBox.classList.remove('hidden', 'bg-green-100', 'border-green-400', 'text-green-700', 'bg-red-100', 'border-red-400', 'text-red-700', 'bg-blue-100', 'border-blue-400', 'text-blue-700');
+                if (type === 'green') {
+                    messageBox.classList.add('bg-green-100', 'border-green-400', 'text-green-700');
+                } else if (type === 'red') {
+                    messageBox.classList.add('bg-red-100', 'border-red-400', 'text-red-700');
+                } else if (type === 'blue') {
+                    messageBox.classList.add('bg-blue-100', 'border-blue-400', 'text-blue-700');
+                }
+                messageBox.classList.add('flex', 'items-center', 'justify-between');
+                messageBox.classList.remove('hidden');
+
+                setTimeout(() => {
+                    hideMessage();
+                }, 8000);
+            }
+
+            function hideMessage() {
+                messageBox.classList.add('hidden');
+                messageBox.classList.remove('flex', 'items-center', 'justify-between');
+            }
+
+            function showLoading() {
+                loadingIndicator.classList.remove('hidden');
+            }
+
+            function hideLoading() {
+                loadingIndicator.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
