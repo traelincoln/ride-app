@@ -6,7 +6,7 @@ import os
 
 app = Flask(__name__)
 # Configure CORS to allow requests from your frontend (replace '*' with your frontend URL in production)
-CORS(app, resources={r"/book-ride": {"origins": "*"}})
+CORS(app, resources={r"/book-ride": {"origins": "https://vin-diesel-hre.netlify.app/"}})
 
 # --- Configuration ---
 # IMPORTANT: Replace 'YOUR_FIXED_ORIGIN_ADDRESS' with your actual starting location (e.g., your home address or garage)
