@@ -23,7 +23,8 @@
             box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.5); /* Blue shadow on focus */
             border-color: #4299e1; /* Blue border on focus */
         }
-        /* Style for Google Places Autocomplete dropdown */
+        /* Style for Google Places Autocomplete dropdown (old API specific) */
+        /* Note: PlaceAutocompleteElement renders its own UI natively, these might be less relevant for the new API */
         .pac-container {
             border-radius: 0.5rem;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
@@ -77,9 +78,28 @@
             overflow: hidden;
         }
         /* Styling for disabled inputs */
-        .form-input:disabled, .form-textarea:disabled {
+        .form-input:disabled, .form-textarea:disabled, .gmp-place-autocomplete:disabled {
             background-color: #f5f5f5; /* Tailwind's gray-100 */
             cursor: not-allowed;
+        }
+        /* Styling for the gmp-place-autocomplete web component's internal input */
+        gmp-place-autocomplete {
+            width: 100%; /* Ensure it takes full width of its container */
+            display: block; /* Make it a block element */
+        }
+        gmp-place-autocomplete input {
+            /* Inherit or override form-input styles for the internal input */
+            width: 100%;
+            padding: 0.5rem 1rem; /* px-4 py-2 */
+            border: 1px solid #d1d5db; /* border-gray-300 */
+            border-radius: 0.375rem; /* rounded-md */
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); /* shadow-sm */
+            transition: all 150ms ease-in-out;
+        }
+        gmp-place-autocomplete input:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.5);
+            border-color: #4299e1;
         }
     </style>
 </head>
@@ -116,8 +136,13 @@
             <div>
                 <label for="pickupLocation" class="block text-sm font-medium text-gray-700 mb-1">Your Current Pickup Location</label>
                 <div class="flex items-center space-x-2">
-                    <input type="text" id="pickupLocation" name="pickupLocation" placeholder="Start typing an address or pick on map..." required
-                           class="form-input flex-grow px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition duration-150 ease-in-out">
+                    <!-- PlaceAutocompleteElement for pickupLocation -->
+                    <gmp-place-autocomplete id="pickupAutocompleteElement"
+                                            class="flex-grow"
+                                            type="address"
+                                            countries="us ca gb au zw">
+                        <input type="text" id="pickupLocation" name="pickupLocation" placeholder="Start typing an address or pick on map..." required>
+                    </gmp-place-autocomplete>
                     <button type="button" id="pickPickupOnMapBtn"
                             class="px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-400 text-sm">
                         Pick on Map
@@ -129,8 +154,13 @@
             <div>
                 <label for="destination" class="block text-sm font-medium text-gray-700 mb-1">Your Primary Destination</label>
                 <div class="flex items-center space-x-2">
-                    <input type="text" id="destination" name="destination" placeholder="Start typing an address or pick on map..." required
-                           class="form-input flex-grow px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition duration-150 ease-in-out">
+                    <!-- PlaceAutocompleteElement for destination -->
+                    <gmp-place-autocomplete id="destinationAutocompleteElement"
+                                            class="flex-grow"
+                                            type="address"
+                                            countries="us ca gb au zw">
+                        <input type="text" id="destination" name="destination" placeholder="Start typing an address or pick on map..." required>
+                    </gmp-place-autocomplete>
                     <button type="button" id="pickDestinationOnMapBtn"
                             class="px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-400 text-sm">
                         Pick on Map
@@ -189,6 +219,7 @@
                 <p><strong>Email:</strong> <span id="summaryEmail"></span></p>
                 <p><strong>Phone:</strong> <span id="summaryPhone"></span></p>
                 <p><strong>Pickup:</strong> <span id="summaryPickup"></span></p>
+                <!-- FIX: Corrected ID from summaryDestination to summaryPrimaryDestination -->
                 <p><strong>Destination:</strong> <span id="summaryPrimaryDestination"></span></p>
                 <div id="summaryAdditionalDestinationsContainer" class="hidden">
                     <strong>Additional Stops:</strong>
@@ -234,26 +265,125 @@
 
 
     <script>
-        // Google Maps JavaScript API key - Make sure this is YOUR CLIENT-SIDE API KEY
-        // This key should be restricted to the Places API and Maps JavaScript API for client-side use.
+        // Google Maps JavaScript API key
         function loadGoogleMapsScript() {
             const script = document.createElement('script');
-            // IMPORTANT: Your provided API key
-            script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyBOh_MPmcrd0ujlmahjM-gY15Vo4aFtdBs&libraries=places&callback=initMapAndAutocomplete`;
+            // IMPORTANT: Include 'places' and 'marker' libraries
+            script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyBOh_MPmcrd0ujlmahjM-gY15Vo4aFtdBs&libraries=places,marker&callback=initMapAndAutocomplete`;
             script.async = true;
             script.defer = true;
             document.head.appendChild(script);
         }
 
         let map;
-        let mapMarker;
+        let mapMarker; // This will now be an AdvancedMarkerElement
         let geocoder;
-        let mapClickListener;
-        let currentMapTargetInput = null;
+        // Store listener handles returned by addListener to correctly remove them later
+        let mapClickListenerHandle;
+        let mapMarkerDragEndListenerHandle;
 
-        let pickupAutocomplete;
-        let primaryDestinationAutocomplete;
-        const dynamicDestinationAutocompletes = [];
+        let currentMapTargetInput = null; // Reference to the <input> element that needs updating
+
+        // Global references to the PlaceAutocompleteElement web components (for initial elements)
+        let pickupAutocompleteElement;
+        let destinationAutocompleteElement;
+        // Array to hold references for dynamically created PlaceAutocompleteElements
+        const dynamicAutocompleteElements = [];
+
+        // --- GLOBAL HELPER FUNCTIONS (moved out of DOMContentLoaded) ---
+        function showMessage(message, type) {
+            const messageBox = document.getElementById('messageBox');
+            const messageText = document.getElementById('messageText');
+            messageText.textContent = message;
+            messageBox.classList.remove('hidden', 'bg-green-100', 'border-green-400', 'text-green-700', 'bg-red-100', 'border-red-400', 'text-red-700', 'bg-blue-100', 'border-blue-400', 'text-blue-700');
+            if (type === 'green') {
+                messageBox.classList.add('bg-green-100', 'border-green-400', 'text-green-700');
+            } else if (type === 'red') {
+                messageBox.classList.add('bg-red-100', 'border-red-400', 'text-red-700');
+            } else if (type === 'blue') {
+                messageBox.classList.add('bg-blue-100', 'border-blue-400', 'text-blue-700');
+            }
+            messageBox.classList.add('flex', 'items-center', 'justify-between');
+            messageBox.classList.remove('hidden');
+
+            setTimeout(() => {
+                hideMessage();
+            }, 8000);
+        }
+
+        function hideMessage() {
+            const messageBox = document.getElementById('messageBox');
+            messageBox.classList.add('hidden');
+            messageBox.classList.remove('flex', 'items-center', 'justify-between');
+        }
+
+        function showLoading() {
+            document.getElementById('loadingIndicator').classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingIndicator').classList.add('hidden');
+        }
+
+        function displayTripSummary(details) {
+            document.getElementById('summaryName').textContent = details.name;
+            document.getElementById('summaryEmail').textContent = details.email;
+            document.getElementById('summaryPhone').textContent = details.phone;
+            document.getElementById('summaryPickup').textContent = details.pickupLocation;
+            // FIX: Corrected ID to summaryPrimaryDestination
+            document.getElementById('summaryPrimaryDestination').textContent = details.primaryDestination;
+
+            const summaryAdditionalDestinations = document.getElementById('summaryAdditionalDestinations');
+            const summaryAdditionalDestinationsContainer = document.getElementById('summaryAdditionalDestinationsContainer');
+            summaryAdditionalDestinations.innerHTML = '';
+            if (details.additionalDestinations && details.additionalDestinations.length > 0) {
+                summaryAdditionalDestinationsContainer.classList.remove('hidden');
+                details.additionalDestinations.forEach(stop => {
+                    const li = document.createElement('li');
+                    li.textContent = stop;
+                    summaryAdditionalDestinations.appendChild(li);
+                });
+            } else {
+                summaryAdditionalDestinationsContainer.classList.add('hidden');
+            }
+
+            document.getElementById('summaryDistance').textContent = `${details.total_distance_km.toFixed(2)} km`;
+            document.getElementById('summaryDuration').textContent = `${details.total_duration_minutes.toFixed(2)} minutes`;
+            document.getElementById('summaryCost').textContent = `$${details.estimated_cost_usd.toFixed(2)}`;
+
+            document.getElementById('tripSummary').classList.remove('hidden');
+        }
+
+        function hideTripSummary() {
+            document.getElementById('tripSummary').classList.add('hidden');
+        }
+
+        // Function to enable/disable form fields
+        function setFormFieldsDisabled(disabled) {
+            // Disable/enable all standard input and textarea elements (not inside gmp-place-autocomplete)
+            document.querySelectorAll('#rideBookingForm > div > input, #rideBookingForm > div > textarea').forEach(field => {
+                if (!field.closest('gmp-place-autocomplete')) {
+                    field.disabled = disabled;
+                }
+            });
+
+            // Disable/enable gmp-place-autocomplete elements (which internally disable their inputs)
+            document.querySelectorAll('gmp-place-autocomplete').forEach(autocompleteEl => {
+                autocompleteEl.disabled = disabled;
+            });
+
+            // Handle specific buttons
+            document.getElementById('addStopBtn').disabled = disabled;
+            document.getElementById('pickPickupOnMapBtn').disabled = disabled;
+            document.getElementById('pickDestinationOnMapBtn').disabled = disabled;
+            
+            // Handle dynamically added "X" remove buttons and "Map" buttons for additional stops
+            document.querySelectorAll('#additionalDestinationsContainer button').forEach(button => {
+                button.disabled = disabled;
+            });
+        }
+        // --- END GLOBAL HELPER FUNCTIONS ---
+
 
         async function initMapAndAutocomplete() {
             let initialCenter = { lat: -17.825166, lng: 31.050805 }; // Default to Harare, Zimbabwe
@@ -274,9 +404,19 @@
                         lng: position.coords.longitude
                     };
                     console.log("Map centered on user's current location:", initialCenter);
+                    
+                    geocoder = new google.maps.Geocoder(); // Initialize geocoder before using it
+                    geocoder.geocode({ 'location': initialCenter }, (results, status) => {
+                        if (status === 'OK' && results[0]) {
+                            document.getElementById('pickupLocation').value = results[0].formatted_address;
+                            console.log("Pickup location auto-filled with current address:", results[0].formatted_address);
+                        } else {
+                            console.warn("Could not reverse geocode current location:", status);
+                        }
+                    });
+
                 } catch (error) {
                     console.warn(`Geolocation error (${error.code || 'UNKNOWN'}): ${error.message || 'Permission denied or timed out'}. Falling back to default location.`);
-                    // Fallback to default location if geolocation fails or is denied
                 }
             } else {
                 console.warn("Geolocation is not supported by this browser. Falling back to default location.");
@@ -289,58 +429,60 @@
                 streetViewControl: false
             });
 
-            mapMarker = new google.maps.Marker({
+            // --- Marker Migration: Using AdvancedMarkerElement ---
+            mapMarker = new google.maps.marker.AdvancedMarkerElement({
                 map: map,
-                position: initialCenter, // Marker starts at initial center
-                draggable: true
+                position: initialCenter, // Set initial position
+                gmpDraggable: true, // New property for draggable
             });
 
-            geocoder = new google.maps.Geocoder();
+            // Ensure geocoder is initialized if geolocation didn't trigger it
+            if (!geocoder) {
+                geocoder = new google.maps.Geocoder();
+            }
 
-            const pickupInput = document.getElementById('pickupLocation');
-            const primaryDestinationInput = document.getElementById('destination');
+            // Initialize PlaceAutocompleteElement for static inputs
+            pickupAutocompleteElement = document.getElementById('pickupAutocompleteElement');
+            destinationAutocompleteElement = document.getElementById('destinationAutocompleteElement');
 
-            const autocompleteOptions = {
-                types: ['address'],
-                componentRestrictions: { 'country': ['us', 'ca', 'gb', 'au', 'zw'] }
-            };
-
-            pickupAutocomplete = new google.maps.places.Autocomplete(pickupInput, autocompleteOptions);
-            primaryDestinationAutocomplete = new google.maps.places.Autocomplete(primaryDestinationInput, autocompleteOptions);
-
-            pickupAutocomplete.addListener('place_changed', () => {
-                const place = pickupAutocomplete.getPlace();
-                pickupInput.value = place.formatted_address || pickupInput.value;
-                console.log('Pickup Location selected via autocomplete:', pickupInput.value);
+            // Listen for 'gmp-placeselect' event on the PlaceAutocompleteElement
+            pickupAutocompleteElement.addEventListener('gmp-placeselect', (event) => {
+                const place = event.detail.place;
+                const inputElement = document.getElementById('pickupLocation'); // Get the underlying input
+                inputElement.value = place.formattedAddress || '';
+                console.log('Pickup Location selected via autocomplete:', place.formattedAddress);
             });
 
-            primaryDestinationAutocomplete.addListener('place_changed', () => {
-                const place = primaryDestinationAutocomplete.getPlace();
-                primaryDestinationInput.value = place.formatted_address || primaryDestinationInput.value;
-                console.log('Primary Destination selected via autocomplete:', primaryDestinationInput.value);
+            destinationAutocompleteElement.addEventListener('gmp-placeselect', (event) => {
+                const place = event.detail.place;
+                const inputElement = document.getElementById('destination'); // Get the underlying input
+                inputElement.value = place.formattedAddress || '';
+                console.log('Primary Destination selected via autocomplete:', place.formattedAddress);
             });
 
-            document.querySelectorAll('.additional-destination-input').forEach(input => {
-                initializeDynamicAutocomplete(input);
+            // Initialize any dynamically added PlaceAutocompleteElements that might exist (e.g., on page refresh)
+            document.querySelectorAll('gmp-place-autocomplete.dynamic-autocomplete-element').forEach(element => {
+                initializeDynamicPlaceAutocomplete(element);
             });
         }
 
-        function initializeDynamicAutocomplete(inputElement) {
-            const autocompleteOptions = {
-                types: ['address'],
-                componentRestrictions: { 'country': ['us', 'ca', 'gb', 'au', 'zw'] }
-            };
-            const newAutocomplete = new google.maps.places.Autocomplete(inputElement, autocompleteOptions);
-            newAutocomplete.addListener('place_changed', () => {
-                const place = newAutocomplete.getPlace();
-                inputElement.value = place.formatted_address || inputElement.value;
-                console.log('Dynamic Destination selected via autocomplete:', inputElement.value);
+        // Function to initialize PlaceAutocompleteElement for dynamic inputs
+        function initializeDynamicPlaceAutocomplete(autocompleteElement) {
+            autocompleteElement.addEventListener('gmp-placeselect', (event) => {
+                const place = event.detail.place;
+                // The input element is the first child of the gmp-place-autocomplete element
+                const inputElement = autocompleteElement.querySelector('input');
+                if (inputElement) {
+                    inputElement.value = place.formattedAddress || '';
+                    console.log('Dynamic Destination selected via autocomplete:', place.formattedAddress);
+                }
             });
-            dynamicDestinationAutocompletes.push(newAutocomplete);
+            // Store the instance in case we need to manage them later (e.g., re-enable)
+            dynamicAutocompleteElements.push(autocompleteElement);
         }
 
         function openMapModal(targetInput) {
-            currentMapTargetInput = targetInput;
+            currentMapTargetInput = targetInput; // This is the actual <input> element inside gmp-place-autocomplete
             document.getElementById('mapModal').classList.remove('hidden');
             document.body.classList.add('modal-open');
 
@@ -359,35 +501,40 @@
                 geocoder.geocode({ 'address': initialAddress }, (results, status) => {
                     if (status === 'OK' && results[0]) {
                         map.setCenter(results[0].geometry.location);
-                        mapMarker.setPosition(results[0].geometry.location);
+                        mapMarker.position = results[0].geometry.location; // Update position for AdvancedMarkerElement
                     } else {
                         console.warn(`Could not geocode '${initialAddress}', centering map to current view.`);
                         map.setCenter(map.getCenter());
-                        mapMarker.setPosition(map.getCenter());
+                        mapMarker.position = map.getCenter(); // Update position for AdvancedMarkerElement
                     }
                 });
             } else {
+                // If input is empty, ensure marker is centered on current map view
                 map.setCenter(map.getCenter());
-                mapMarker.setPosition(map.getCenter());
+                mapMarker.position = map.getCenter(); // Update position for AdvancedMarkerElement
             }
 
+            // Trigger a resize event to ensure the map renders correctly within the modal
             google.maps.event.trigger(map, 'resize');
 
-            mapClickListener = map.addListener('click', handleMapClick);
-            mapMarker.addListener('dragend', handleMapDragEnd);
+            // Store the listener handles
+            mapClickListenerHandle = map.addListener('click', handleMapClick);
+            // AdvancedMarkerElement uses addEventListener directly for dragend
+            mapMarkerDragEndListenerHandle = mapMarker.addListener('dragend', handleMapDragEnd);
         }
 
         function handleMapClick(event) {
             const latLng = event.latLng;
-            mapMarker.setPosition(latLng);
+            mapMarker.position = latLng; // Update position for AdvancedMarkerElement
             reverseGeocode(latLng);
         }
 
         function handleMapDragEnd() {
-            const latLng = mapMarker.getPosition();
+            const latLng = mapMarker.position; // Get position for AdvancedMarkerElement
             reverseGeocode(latLng);
         }
 
+        // Function to reverse geocode (coordinates to address) and update the target input
         function reverseGeocode(latLng) {
             geocoder.geocode({ 'location': latLng }, (results, status) => {
                 if (status === 'OK') {
@@ -396,12 +543,12 @@
                         console.log("Selected address from map:", results[0].formatted_address);
                     } else {
                         console.warn('No results found for reverse geocoding.');
-                        currentMapTargetInput.value = `${latLng.lat().toFixed(6)}, ${latLng.lng().toFixed(6)}`;
+                        currentMapTargetInput.value = `${latLng.lat().toFixed(6)}, ${latLng.lng().toFixed(6)}`; // Fallback to coordinates
                     }
                 } else {
                     console.error('Geocoder failed due to: ' + status);
                     showMessage('Could not find address for selected point. Please try again.', 'red');
-                    currentMapTargetInput.value = `${latLng.lat().toFixed(6)}, ${latLng.lng().toFixed(6)}`;
+                    currentMapTargetInput.value = `${latLng.lat().toFixed(6)}, ${latLng.lng().toFixed(6)}`; // Fallback to coordinates
                 }
             });
         }
@@ -409,25 +556,17 @@
         function closeMapModal() {
             document.getElementById('mapModal').classList.add('hidden');
             document.body.classList.remove('modal-open');
-            if (mapClickListener) {
-                google.maps.event.removeListener(mapClickListener);
+            // Correctly remove listeners using their handles
+            if (mapClickListenerHandle) {
+                google.maps.event.removeListener(mapClickListenerHandle);
+                mapClickListenerHandle = null; // Clear the handle
             }
-            mapMarker.removeListener('dragend');
+            if (mapMarkerDragEndListenerHandle) {
+                // FIX: AdvancedMarkerElement uses removeEventListener directly, not google.maps.event.removeListener
+                mapMarker.removeEventListener('dragend', handleMapDragEnd); 
+                mapMarkerDragEndListenerHandle = null; // Clear the handle
+            }
             currentMapTargetInput = null;
-        }
-
-        function setFormFieldsDisabled(disabled) {
-            document.querySelectorAll('#rideBookingForm input, #rideBookingForm textarea').forEach(field => {
-                field.disabled = disabled;
-            });
-
-            document.getElementById('addStopBtn').disabled = disabled;
-            document.getElementById('pickPickupOnMapBtn').disabled = disabled;
-            document.getElementById('pickDestinationOnMapBtn').disabled = disabled;
-            
-            document.querySelectorAll('.additional-destination-input + button, .additional-destination-input ~ button').forEach(button => {
-                button.disabled = disabled;
-            });
         }
 
 
@@ -438,30 +577,14 @@
             const emailError = document.getElementById('emailError');
             const phoneInput = document.getElementById('phone');
             const phoneError = document.getElementById('phoneError');
-            const messageBox = document.getElementById('messageBox');
-            const messageText = document.getElementById('messageText');
             const addStopBtn = document.getElementById('addStopBtn');
             const additionalDestinationsContainer = document.getElementById('additionalDestinationsContainer');
-            const loadingIndicator = document.getElementById('loadingIndicator');
-
             const getQuoteBtn = document.getElementById('getQuoteBtn');
             const confirmBookingBtn = document.getElementById('confirmBookingBtn');
-            const tripSummary = document.getElementById('tripSummary');
-            const summaryName = document.getElementById('summaryName');
-            const summaryEmail = document.getElementById('summaryEmail');
-            const summaryPhone = document.getElementById('summaryPhone');
-            const summaryPickup = document.getElementById('summaryPickup');
-            const summaryPrimaryDestination = document.getElementById('summaryDestination');
-            const summaryAdditionalDestinationsContainer = document.getElementById('summaryAdditionalDestinationsContainer');
-            const summaryAdditionalDestinations = document.getElementById('summaryAdditionalDestinations');
-            const summaryDistance = document.getElementById('summaryDistance');
-            const summaryDuration = document.getElementById('summaryDuration');
-            const summaryCost = document.getElementById('summaryCost');
             const editDetailsBtn = document.getElementById('editDetailsBtn');
 
             const pickPickupOnMapBtn = document.getElementById('pickPickupOnMapBtn');
             const pickDestinationOnMapBtn = document.getElementById('pickDestinationOnMapBtn');
-            const mapModal = document.getElementById('mapModal');
             const cancelMapPickBtn = document.getElementById('cancelMapPickBtn');
             const confirmMapPickBtn = document.getElementById('confirmMapPickBtn');
 
@@ -471,8 +594,7 @@
             // Email validation regex
             const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
-            // Load Google Maps script once the DOM is ready
-            loadGoogleMapsScript();
+            // Load Google Maps script once the DOM is ready (already called at top of script)
 
             // Event listeners for map picking buttons
             pickPickupOnMapBtn.addEventListener('click', () => openMapModal(document.getElementById('pickupLocation')));
@@ -482,7 +604,8 @@
             // FIX: Ensure address is set when "Confirm Location" button is clicked
             confirmMapPickBtn.addEventListener('click', () => {
                 if (currentMapTargetInput && mapMarker) {
-                    reverseGeocode(mapMarker.getPosition()); // Explicitly reverse geocode the marker's position
+                    // For AdvancedMarkerElement, position is a property, not a method
+                    reverseGeocode(mapMarker.position); // Explicitly reverse geocode the marker's position
                 }
                 closeMapModal(); // Then close the modal
             });
@@ -493,17 +616,27 @@
                 const newStopDiv = document.createElement('div');
                 newStopDiv.className = 'flex items-center space-x-2 w-full';
 
+                // Create the gmp-place-autocomplete web component
+                const newPlaceAutocompleteElement = document.createElement('gmp-place-autocomplete');
+                newPlaceAutocompleteElement.className = 'flex-grow dynamic-autocomplete-element'; // Add class for easy selection
+                newPlaceAutocompleteElement.setAttribute('type', 'address');
+                newPlaceAutocompleteElement.setAttribute('countries', 'us ca gb au zw');
+
+                // Create the actual input element inside the web component
                 const newInput = document.createElement('input');
                 newInput.type = 'text';
                 newInput.placeholder = 'Another stop address...';
-                newInput.className = 'form-input flex-grow px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition duration-150 ease-in-out additional-destination-input';
-                newInput.name = 'additionalDestination';
+                // Apply Tailwind classes directly to the inner input for styling
+                newInput.className = 'px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition duration-150 ease-in-out additional-destination-input';
+                newInput.name = 'additionalDestination'; // Give it a common name for collection
+
+                newPlaceAutocompleteElement.appendChild(newInput); // Append input to the web component
 
                 const pickMapButton = document.createElement('button');
                 pickMapButton.type = 'button';
                 pickMapButton.textContent = 'Map';
                 pickMapButton.className = 'px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-400 text-sm dynamic-pick-on-map-btn';
-                pickMapButton.onclick = () => openMapModal(newInput);
+                pickMapButton.onclick = () => openMapModal(newInput); // Pass the inner input element to openMapModal
 
                 const removeButton = document.createElement('button');
                 removeButton.type = 'button';
@@ -513,19 +646,22 @@
                     newStopDiv.remove();
                 };
 
-                newStopDiv.appendChild(newInput);
+                newStopDiv.appendChild(newPlaceAutocompleteElement); // Append the web component
                 newStopDiv.appendChild(pickMapButton);
                 newStopDiv.appendChild(removeButton);
                 additionalDestinationsContainer.appendChild(newStopDiv);
 
+                // Initialize the PlaceAutocompleteElement for the new input
+                // This needs to be done after it's attached to the DOM for it to fully render
                 if (typeof google !== 'undefined' && google.maps && google.maps.places) {
-                    initializeDynamicAutocomplete(newInput);
+                    initializeDynamicPlaceAutocomplete(newPlaceAutocompleteElement);
                 } else {
                     console.warn('Google Maps API not fully loaded when trying to add dynamic autocomplete.');
                 }
 
-                if (getQuoteBtn.classList.contains('hidden')) {
-                    newInput.disabled = true;
+                // If form fields are currently disabled (after a quote), disable the new elements
+                if (getQuoteBtn.classList.contains('hidden')) { // Implies quote shown, fields disabled
+                    newPlaceAutocompleteElement.disabled = true; // Disable the web component itself
                     pickMapButton.disabled = true;
                     removeButton.disabled = true;
                 }
@@ -541,13 +677,17 @@
                 if (!phoneRegex.test(phoneInput.value)) { phoneError.classList.remove('hidden'); phoneInput.classList.add('border-red-500'); isValid = false; } else { phoneError.classList.add('hidden'); phoneInput.classList.remove('border-red-500'); }
                 if (!emailRegex.test(emailInput.value)) { emailError.classList.remove('hidden'); emailInput.classList.add('border-red-500'); isValid = false; } else { emailError.classList.add('hidden'); emailInput.classList.remove('border-red-500'); }
 
-                if (document.getElementById('pickupLocation').value.trim() === '') {
+                // Retrieve values from the inner input elements of PlaceAutocompleteElement
+                const pickupLocationValue = document.getElementById('pickupLocation').value.trim();
+                const destinationValue = document.getElementById('destination').value.trim();
+
+                if (pickupLocationValue === '') {
                     isValid = false;
                     document.getElementById('pickupLocation').classList.add('border-red-500');
                 } else {
                     document.getElementById('pickupLocation').classList.remove('border-red-500');
                 }
-                if (document.getElementById('destination').value.trim() === '') {
+                if (destinationValue === '') {
                     isValid = false;
                     document.getElementById('destination').classList.add('border-red-500');
                 } else {
@@ -561,8 +701,10 @@
                 }
 
                 const additionalDestinations = [];
-                document.querySelectorAll('.additional-destination-input').forEach(input => {
-                    if (input.value.trim() !== '') {
+                // Iterate through the gmp-place-autocomplete elements for dynamic stops
+                document.querySelectorAll('gmp-place-autocomplete.dynamic-autocomplete-element').forEach(autocompleteEl => {
+                    const input = autocompleteEl.querySelector('input'); // Get the actual input element inside
+                    if (input && input.value.trim() !== '') {
                         additionalDestinations.push(input.value.trim());
                     }
                 });
@@ -571,14 +713,15 @@
                     name: nameInput.value,
                     email: emailInput.value,
                     phone: phoneInput.value,
-                    pickupLocation: document.getElementById('pickupLocation').value,
-                    primaryDestination: document.getElementById('destination').value,
+                    pickupLocation: pickupLocationValue,
+                    primaryDestination: destinationValue,
                     additionalDestinations: additionalDestinations,
                     passengerRequests: document.getElementById('passengerRequests').value
                 };
 
                 try {
-                    const response = await fetch(' https://ride-app-backend-254fbdca48bf.herokuapp.com/book-ride', {
+                    // Corrected backend endpoint URL
+                    const response = await fetch('https://ride-app-backend-254fbdca48bf.herokuapp.com/book-ride', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(formData)
@@ -615,8 +758,9 @@
                 showLoading();
 
                 const additionalDestinations = [];
-                document.querySelectorAll('.additional-destination-input').forEach(input => {
-                    if (input.value.trim() !== '') {
+                document.querySelectorAll('gmp-place-autocomplete.dynamic-autocomplete-element').forEach(autocompleteEl => {
+                    const input = autocompleteEl.querySelector('input');
+                    if (input && input.value.trim() !== '') {
                         additionalDestinations.push(input.value.trim());
                     }
                 });
@@ -633,7 +777,8 @@
                 };
 
                 try {
-                    const response = await fetch(' https://ride-app-backend-254fbdca48bf.herokuapp.com/book-ride', {
+                    // Corrected backend endpoint URL
+                    const response = await fetch('https://ride-app-backend-254fbdca48bf.herokuapp.com/book-ride', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(formData)
@@ -672,67 +817,6 @@
                 showMessage('You can now edit your details. Get a new quote when done.', 'blue');
             });
 
-
-            function displayTripSummary(details) {
-                summaryName.textContent = details.name;
-                summaryEmail.textContent = details.email;
-                summaryPhone.textContent = details.phone;
-                summaryPickup.textContent = details.pickupLocation;
-                summaryPrimaryDestination.textContent = details.primaryDestination;
-
-                summaryAdditionalDestinations.innerHTML = '';
-                if (details.additionalDestinations && details.additionalDestinations.length > 0) {
-                    summaryAdditionalDestinationsContainer.classList.remove('hidden');
-                    details.additionalDestinations.forEach(stop => {
-                        const li = document.createElement('li');
-                        li.textContent = stop;
-                        summaryAdditionalDestinations.appendChild(li);
-                    });
-                } else {
-                    summaryAdditionalDestinationsContainer.classList.add('hidden');
-                }
-
-                summaryDistance.textContent = `${details.total_distance_km.toFixed(2)} km`;
-                summaryDuration.textContent = `${details.total_duration_minutes.toFixed(2)} minutes`;
-                summaryCost.textContent = `$${details.estimated_cost_usd.toFixed(2)}`;
-
-                tripSummary.classList.remove('hidden');
-            }
-
-            function hideTripSummary() {
-                tripSummary.classList.add('hidden');
-            }
-
-            function showMessage(message, type) {
-                messageText.textContent = message;
-                messageBox.classList.remove('hidden', 'bg-green-100', 'border-green-400', 'text-green-700', 'bg-red-100', 'border-red-400', 'text-red-700', 'bg-blue-100', 'border-blue-400', 'text-blue-700');
-                if (type === 'green') {
-                    messageBox.classList.add('bg-green-100', 'border-green-400', 'text-green-700');
-                } else if (type === 'red') {
-                    messageBox.classList.add('bg-red-100', 'border-red-400', 'text-red-700');
-                } else if (type === 'blue') {
-                    messageBox.classList.add('bg-blue-100', 'border-blue-400', 'text-blue-700');
-                }
-                messageBox.classList.add('flex', 'items-center', 'justify-between');
-                messageBox.classList.remove('hidden');
-
-                setTimeout(() => {
-                    hideMessage();
-                }, 8000);
-            }
-
-            function hideMessage() {
-                messageBox.classList.add('hidden');
-                messageBox.classList.remove('flex', 'items-center', 'justify-between');
-            }
-
-            function showLoading() {
-                loadingIndicator.classList.remove('hidden');
-            }
-
-            function hideLoading() {
-                loadingIndicator.classList.add('hidden');
-            }
         });
     </script>
 </body>
